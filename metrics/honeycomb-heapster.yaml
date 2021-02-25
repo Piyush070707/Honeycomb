@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: honeycomb-heapster
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: honeycomb-heapster
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  - namespaces
+  - nodes
+  - nodes/stats
+  - pods
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- nonResourceURLs: ["/metrics"]
+  verbs:
+  - get  
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: honeycomb-heapster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: honeycomb-heapster
+subjects:
+- kind: ServiceAccount
+  name: honeycomb-heapster
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heapster-honeycomb
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: heapster
+  template:
+    metadata:
+      labels:
+        app: heapster
+    spec:
+      serviceAccountName: honeycomb-heapster
+      containers:
+      - name: heapster
+        image: gcr.io/google_containers/heapster-amd64:v1.5.1
+        imagePullPolicy: Always
+        command:
+        - /heapster
+        args:
+        - --source=kubernetes.summary_api:https://kubernetes.default?kubeletPort=10250&kubeletHttps=true&useServiceAccount=true&insecure=true
+        - --sink=honeycomb:?dataset=kubernetes-resource-metrics
+        env:
+        - name: HONEYCOMB_WRITEKEY
+          valueFrom:
+            secretKeyRef:
+              key: key
+              name: honeycomb-writekey
+      - name: eventer
+        image: gcr.io/google_containers/heapster-amd64:v1.5.1
+        imagePullPolicy: Always
+        command:
+        - /eventer
+        args:
+        - --source=kubernetes:https://kubernetes.default
+        - --sink=honeycomb:?dataset=kubernetes-cluster-events
+        env:
+        - name: HONEYCOMB_WRITEKEY
+          valueFrom:
+            secretKeyRef:
+              key: key
+              name: honeycomb-writekey
+
